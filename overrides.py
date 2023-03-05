@@ -1,14 +1,58 @@
 from typing import Optional, Any, Dict, Union
-from setfit import SetFitTrainer
+from setfit import SetFitTrainer, SetFitModel
 import numpy as np
 import math
+import torch
 from setfit.trainer import (
-    set_seed,
     logger,
     losses,
     sentence_pairs_generation,
 )
 from torch.utils.data import DataLoader
+
+
+class CustomModel(SetFitModel):
+
+    def is_frozen_head(self):
+        requires_grad = False
+        for param in self.model_head.parameters():
+            requires_grad = requires_grad or param.requires_grad
+        return not requires_grad
+
+    def is_frozen_body(self):
+        requires_grad = False
+        for param in self.model_head.parameters():
+            requires_grad = requires_grad or param.requires_grad
+        return not requires_grad
+
+    def _prepare_optimizer(
+        self,
+        learning_rate: float,
+        body_learning_rate: Optional[float],
+        l2_weight: float,
+    ) -> torch.optim.Optimizer:
+        body_learning_rate = body_learning_rate or learning_rate
+        l2_weight = l2_weight or self.l2_weight
+        param_groups = {}
+        if not self.is_frozen_body():
+            param_groups.append(
+                {
+                    "params": self.model_body.parameters(),
+                    "lr": body_learning_rate,
+                    "weight_decay": l2_weight,
+                }
+            )
+        if not self.is_frozen_head():
+            param_groups.append(
+                {
+                    "params": self.model_head.parameters(),
+                    "lr": learning_rate,
+                    "weight_decay": l2_weight,
+                }
+            )
+
+        optimizer = torch.optim.AdamW(param_groups)
+        return optimizer
 
 
 class CustomTrainer(SetFitTrainer):
@@ -23,37 +67,16 @@ class CustomTrainer(SetFitTrainer):
         max_length: Optional[int] = None,
         trial: Optional[Union["optuna.Trial", Dict[str, Any]]] = None,
         silent: bool = True,
+        do_finetune: bool = True,   # finetune the sentence transformer on the cosine thing
+        do_fitclf: bool = True,     # if true, we train the haed+(encoder|None) on the actual classification task
+        do_fitclf_trainencoder: bool = False,  # if true it makes sure that the model also trains when doing fitclf
     ):
         """
-        Main training entry point.
-
-        Args:
-            num_epochs (`int`, *optional*):
-                Temporary change the number of epochs to train the Sentence Transformer body/head for.
-                If ignore, will use the value given in initialization.
-            batch_size (`int`, *optional*):
-                Temporary change the batch size to use for contrastive training or logistic regression.
-                If ignore, will use the value given in initialization.
-            learning_rate (`float`, *optional*):
-                Temporary change the learning rate to use for contrastive training or SetFitModel's head in logistic regression.
-                If ignore, will use the value given in initialization.
-            body_learning_rate (`float`, *optional*):
-                Temporary change the learning rate to use for SetFitModel's body in logistic regression only.
-                If ignore, will be the same as `learning_rate`.
-            l2_weight (`float`, *optional*):
-                Temporary change the weight of L2 regularization for SetFitModel's differentiable head in logistic regression.
-            max_length (int, *optional*, defaults to `None`):
-                The maximum number of tokens for one data sample. Currently only for training the differentiable head.
-                If `None`, will use the maximum number of tokens the model body can accept.
-                If `max_length` is greater than the maximum number of acceptable tokens the model body can accept, it will be set to the maximum number of acceptable tokens.
-            trial (`optuna.Trial` or `Dict[str, Any]`, *optional*):
-                The trial run or the hyperparameter dictionary for hyperparameter search.
-            show_progress_bar (`bool`, *optional*, defaults to `True`):
-                Whether to show a bar that indicates training progress.
+            We be overwritin'
         """
-        set_seed(
-            self.seed
-        )  # Seed must be set before instantiating the model when using model_init.
+        # set_seed(
+        #     self.seed
+        # )  # Seed must be set before instantiating the model when using model_init.
 
         if trial:  # Trial and model initialization
             self._hp_search_setup(
@@ -119,15 +142,18 @@ class CustomTrainer(SetFitTrainer):
                 use_amp=self.use_amp,
             )
 
-        if not self.model.has_differentiable_head or not self._freeze:
+        if do_fitclf:
             # Train the final classifier
+            if not do_fitclf_trainencoder:
+                self.model.freeze("body")
+
             self.model.fit(
                 x_train,
                 y_train,
                 num_epochs=num_epochs,
                 batch_size=batch_size,
-                learning_rate=learning_rate,
-                body_learning_rate=body_learning_rate,
+                learning_rate=learning_rate,           # for the head or for both head and body
+                body_learning_rate=body_learning_rate, # for model body
                 l2_weight=l2_weight,
                 max_length=max_length,
                 show_progress_bar=True,

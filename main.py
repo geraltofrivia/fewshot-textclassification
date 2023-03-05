@@ -2,24 +2,18 @@
     First we're going to just follow the thing and play with the metrics once done
 
 """
-from typing import Optional
 
 import click
 import random
 import numpy.random
 import torch
-from sentence_transformers import SentenceTransformer
-from sklearn.linear_model import LogisticRegression
 from datasets import load_dataset, DatasetDict
 import numpy as np
-from setfit.modeling import sentence_pairs_generation
-from torch.utils.data import DataLoader
 from sentence_transformers.losses import CosineSimilarityLoss
 import math
 from mytorch.utils.goodies import FancyDict
-from setfit import SetFitModel
 
-from overrides import CustomTrainer
+from overrides import CustomTrainer, CustomModel
 
 random.seed(42)
 torch.manual_seed(42)
@@ -48,7 +42,7 @@ def case0(
     Run model to classify on main task
     Report Accuracy
     """
-    model = SetFitModel.from_pretrained(
+    model = CustomModel.from_pretrained(
         "sentence-transformers/paraphrase-mpnet-base-v2"
     )
 
@@ -99,12 +93,12 @@ def case1(
     Run model to classify on main task
     Report Accuracy
     """
-    model = SetFitModel.from_pretrained(
+    model = CustomModel.from_pretrained(
         "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True
     )
 
     # Sample num_sents from the dataset. Divide them in 80/20
-    train_ds = dataset["train"].shuffle(seed=42).select(range(num_sents))
+    train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
@@ -121,9 +115,10 @@ def case1(
         num_iterations=20,  # Number of text pairs to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
+    # trainer.se
 
     # Fit the ST on the cosinesim task; Fit the entire thing on the main task
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_fitclf_trainencoder=False)
 
     metrics = trainer.evaluate()
     print(metrics)
@@ -150,7 +145,7 @@ def case2(
     Run model to classify on main task
     Report Accuracy
     """
-    model = SetFitModel.from_pretrained(
+    model = CustomModel.from_pretrained(
         "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True
     )
 
@@ -173,6 +168,13 @@ def case2(
         num_iterations=20,  # Number of text pairs to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
+
+    # TODO: fix flags
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
+
+    metrics = trainer.evaluate()
+    print(metrics)
+    return metrics
 
 
 def case3(dataset: DatasetDict, seed: int, num_sents: int, test_on_test: bool = False):
@@ -275,8 +277,9 @@ def run(
 
     metrics = []
     for _ in range(repeat):
+        seed = random.randint(0, 200)
         dataset = load_dataset(dataset_name)
-        metric = fname(dataset, seed=42, **config)
+        metric = fname(dataset, seed=seed, **config)
         metrics.append(metric)
 
     print(f"---------- FINALLY over {repeat} runs -----------")
