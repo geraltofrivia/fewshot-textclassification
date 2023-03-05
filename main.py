@@ -5,6 +5,7 @@
 from typing import Optional
 
 import click
+import random
 import numpy.random
 import torch
 from sentence_transformers import SentenceTransformer
@@ -16,8 +17,11 @@ from torch.utils.data import DataLoader
 from sentence_transformers.losses import CosineSimilarityLoss
 import math
 from mytorch.utils.goodies import FancyDict
-from setfit import SetFitModel, SetFitTrainer
+from setfit import SetFitModel
 
+from overrides import CustomTrainer
+
+random.seed(42)
 torch.manual_seed(42)
 numpy.random.seed(42)
 
@@ -27,6 +31,7 @@ def case0(
     seed: int,
     num_sents: int,
     num_epochs: int,
+    num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
 ) -> dict:
@@ -56,7 +61,7 @@ def case0(
             range(int(len(train_ds) * 0.8))
         ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
 
-    trainer = SetFitTrainer(
+    trainer = CustomTrainer(
         model=model,
         train_dataset=train_ds,
         eval_dataset=test_ds,
@@ -67,7 +72,7 @@ def case0(
     )
 
     # Fit the ST on the cosinesim task; Fit the entire thing on the main task
-    trainer.train()
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
 
     metrics = trainer.evaluate()
     print(metrics)
@@ -79,6 +84,7 @@ def case1(
     seed: int,
     num_sents: int,
     num_epochs: int,
+    num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
 ) -> dict:
@@ -106,7 +112,7 @@ def case1(
             range(int(len(train_ds) * 0.8))
         ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
 
-    trainer = SetFitTrainer(
+    trainer = CustomTrainer(
         model=model,
         train_dataset=train_ds,
         eval_dataset=test_ds,
@@ -117,7 +123,7 @@ def case1(
     )
 
     # Fit the ST on the cosinesim task; Fit the entire thing on the main task
-    trainer.train()
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
 
     metrics = trainer.evaluate()
     print(metrics)
@@ -129,6 +135,7 @@ def case2(
     seed: int,
     num_sents: int,
     num_epochs: int,
+    num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
 ):
@@ -157,7 +164,7 @@ def case2(
         ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
 
     # Freeze the head (so we never train/finetune ST)
-    trainer = SetFitTrainer(
+    trainer = CustomTrainer(
         model=model,
         train_dataset=train_ds,
         eval_dataset=test_ds,
@@ -213,14 +220,23 @@ def merge_metrics(list_of_metrics):
     default=1,
     help="The number of times we should run the entire codebase",
 )
-@click.option("--batch-size", "-bs", type=int, default=16)
-@click.option("--num-sents", "-ns", type=int, default=64)
+@click.option(
+    "--batch-size", "-bs", type=int, default=16, help="... you know what it is"
+)
+@click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set")
 @click.option(
     "--num-epochs",
     "-e",
     type=int,
     default=1,
-    help="Epochs for both fine-tuning ST and fitting Clf+ST",
+    help="Epochs for fitting Clf+ST",
+)
+@click.option(
+    "--num-epochs-finetune",
+    "-eft",
+    type=int,
+    default=1,
+    help="Epochs for both fine-tuning ST",
 )
 @click.option(
     "--test-on-test",
@@ -234,6 +250,7 @@ def run(
     repeat: int,
     batch_size: int,
     num_epochs: int,
+    num_epochs_finetune: int,
     num_sents: int,
     case: int,
     test_on_test: bool,
@@ -250,17 +267,19 @@ def run(
         **{
             "batch_size": batch_size,
             "num_epochs": num_epochs,
+            "num_epochs_finetune": num_epochs_finetune,
             "num_sents": num_sents,
             "test_on_test": test_on_test,
         }
     )
 
-    dataset = load_dataset(dataset_name)
-    metrics = {}
+    metrics = []
     for _ in range(repeat):
+        dataset = load_dataset(dataset_name)
         metric = fname(dataset, seed=42, **config)
         metrics.append(metric)
 
+    print(f"---------- FINALLY over {repeat} runs -----------")
     print(merge_metrics(metrics))
 
 
