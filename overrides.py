@@ -10,7 +10,7 @@ from pathlib import Path
 from setfit.trainer import (
     logger,
     losses,
-    sentence_pairs_generation,
+    sentence_pairs_generation
 )
 from setfit.modeling import (
     OneVsRestClassifier,
@@ -20,7 +20,7 @@ from setfit.modeling import (
     SetFitHead,
     LogisticRegression,
     MultiOutputClassifier,
-    ClassifierChain,
+    ClassifierChain
 )
 from torch.utils.data import DataLoader
 
@@ -185,15 +185,11 @@ class CustomTrainer(SetFitTrainer):
         silent: bool = True,
         do_finetune: bool = True,  # finetune the sentence transformer on the cosine thing
         do_fitclf: bool = True,  # if true, we train the haed+(encoder|None) on the actual classification task
-        do_fitclf_trainencoder: bool = False,  # if true it makes sure that the model also trains when doing fitclf
+        do_fitclf_trainencoder: bool = True,  # if true it makes sure that the model also trains when doing fitclf
     ):
         """
         We be overwritin'
         """
-        # set_seed(
-        #     self.seed
-        # )  # Seed must be set before instantiating the model when using model_init.
-
         if trial:  # Trial and model initialization
             self._hp_search_setup(
                 trial
@@ -225,7 +221,7 @@ class CustomTrainer(SetFitTrainer):
         learning_rate = learning_rate or self.learning_rate
 
         # If head is logclf -> always do this: why??
-        if not self.model.has_differentiable_head or self._freeze:
+        if (not self.model.has_differentiable_head or self._freeze) and (do_finetune):
             # sentence-transformers adaptation
 
             train_examples = []

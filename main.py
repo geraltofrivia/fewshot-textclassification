@@ -4,7 +4,7 @@
 """
 import json
 from pathlib import Path
-
+from setfit.trainer import set_seed
 import click
 import random
 import numpy.random
@@ -59,7 +59,7 @@ def case0(
     )
 
     # Sample num_sents from the dataset. Divide them in 80/20
-    train_ds = dataset["train"].shuffle(seed=42).select(range(num_sents))
+    train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
@@ -81,7 +81,7 @@ def case0(
     trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
 
     metrics = trainer.evaluate()
-    print(metrics)
+    # print(metrics)
     return metrics
 
 
@@ -95,11 +95,14 @@ def case1(
     test_on_test: bool = False,
 ) -> dict:
     """
+    This is regular fine-tuning. Noisy.
+    Skip ST Finetuning; Slap a classifier and train the thing together.
+
     Get SetFit model (with ST and DenseHead).
     # Step 1
     Create pairs
-    Fine tune ST on faux task (Cosine)
-    Fit DenseHead on main task
+    DONT Fine tune ST on faux task (Cosine)
+    Fit DenseHead + ST on main task
 
     # Step 2
     Run model to classify on main task
@@ -130,14 +133,66 @@ def case1(
     # trainer.se
 
     # Fit the ST on the cosinesim task; Fit the entire thing on the main task
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_fitclf_trainencoder=False)
+    # trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune) #, do_fitclf_trainencoder=False)
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_fitclf_trainencoder=True, do_finetune=False)
 
     metrics = trainer.evaluate()
-    print(metrics)
+    # print(metrics)
     return metrics
 
 
 def case2(
+    dataset: DatasetDict,
+    seed: int,
+    num_sents: int,
+    num_epochs: int,
+    num_epochs_finetune: int,
+    batch_size: int,
+    test_on_test: bool = False,
+):
+    """
+    Get SetFit model (ST + LogClf Head)
+
+    # Step 1
+    Do not fine-tune ST on faux task (Cosine)
+    Just fit LogClf on the main task (freeze body)
+
+    # Step 2
+    Run model to classify on main task
+    Report Accuracy
+    """
+    model = CustomModel.from_pretrained(
+        "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=False
+    )
+
+    # Sample num_sents from the dataset. Divide them in 80/20
+    train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
+    if test_on_test:
+        test_ds = dataset["test"]
+    else:
+        train_ds, test_ds = train_ds.select(
+            range(int(len(train_ds) * 0.8))
+        ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
+
+    # Freeze the head (so we never train/finetune ST)
+    trainer = CustomTrainer(
+        model=model,
+        train_dataset=train_ds,
+        eval_dataset=test_ds,
+        loss_class=CosineSimilarityLoss,
+        batch_size=batch_size,
+        num_iterations=20,  # Number of text pairs to generate for contrastive learning
+        num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
+    )
+
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_finetune=False)
+
+    metrics = trainer.evaluate()
+    # print(metrics)
+    return metrics
+
+
+def case3(
     dataset: DatasetDict,
     seed: int,
     num_sents: int,
@@ -181,26 +236,12 @@ def case2(
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
 
-    # TODO: fix flags
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune)
+    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_finetune=False)
 
     metrics = trainer.evaluate()
     print(metrics)
     return metrics
 
-
-def case3(dataset: DatasetDict, seed: int, num_sents: int, test_on_test: bool = False):
-    """
-    Get SetFit model (ST + Dense Head)
-
-    # Step 1
-    Do not Fine-tune ST on faux task (cosine)
-    Fit ST+DenseHead on the main task
-
-    # Step 2:
-    same as always
-    """
-    ...
 
 
 def merge_metrics(list_of_metrics):
@@ -290,6 +331,7 @@ def run(
     metrics = []
     for _ in range(repeat):
         seed = random.randint(0, 200)
+        set_seed(seed)
         with suppress_stdout_stderr():
             # suppress prints, allow exceptions
             dataset = load_dataset(dataset_name)
@@ -298,12 +340,13 @@ def run(
 
     print(f"---------- FINALLY over {repeat} runs -----------")
     metrics = merge_metrics(metrics)
-    print({k: f"{np.mean(v)} +- {np.std(v)}" for k, v in metrics.items()})
+    print({k: f"{np.mean(v):.3f} +- {np.std(v):.3f}" for k, v in metrics.items()})
+    metrics['config'] = config
 
     # Dump them to disk
-    dumpdir = Path(f'summaries') / dataset_name.split('/')[-1] / f"case_{case}.json"
+    dumpdir = Path(f'summaries') / f"{dataset_name.split('/')[-1]}_{num_sents}"
     dumpdir.mkdir(parents=True, exist_ok=True)
-    with dumpdir.open('w+') as f:
+    with (dumpdir / f"case_{case}.json").open('w+') as f:
         json.dump(metrics, f)
 
 
