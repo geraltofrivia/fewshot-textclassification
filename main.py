@@ -219,7 +219,6 @@ def case3(
     seed: int,
     num_sents: int,
     batch_size: int,
-    no_retry: bool,
     test_on_test: bool = False,
     *args,
     **kwargs,
@@ -301,12 +300,13 @@ def case3(
 
         answers = None
         answers = llm_chain.generate(texts)
-        # while not no_retry:
+        # while True:
         #     try:
         #         answers = llm_chain.generate(texts)
+        #         break
         #     except ValueError as e:
         #         print(e) # so you can see the error.
-        #         if input("Enter `q` to stop, else we keep trying to send this request again.") == 'q':
+        #         if input("Enter `q` to stop, else we keep trying to send this request again.") == 'q' or no_retry:
         #             break
         #         else:
         #             continue
@@ -345,14 +345,19 @@ def normalize_dataset(dataset: DatasetDict):
     "-d",
     type=str,
     default="SetFit/SentEval-CR",
-    help="The name of the dataset eg SetFit/SentEval-CR | SetFit/bbc-news | SetFit/enron_spam ",
+    help="The name of the dataset as it appears on the HuggingFace hub "
+         "e.g. SetFit/SentEval-CR | SetFit/bbc-news | SetFit/enron_spam ... ",
 )
 @click.option(
     "--case",
     "-c",
     type=int,
     required=True,
-    help="Which case to run. See case docstrings for info. Values between 0,1, and 2. You can run 3 but its useless.",
+    help="0, 1, 2, or 3: which experiment are we running. See readme or docstrings to know more but briefly: "
+         "**0**: SentTF -> Constrastive Pretrain -> +LogReg on task. "
+         "**1**: SentTF -> +Dense on task. "
+         "**2**: SentTF -> +LogReg on task. "
+         "**3**: FewShotPrompting based Clf over Flan-t5-xl",
 )
 @click.option(
     "--repeat",
@@ -362,35 +367,36 @@ def normalize_dataset(dataset: DatasetDict):
     help="The number of times we should run the entire experiment (changing the seed).",
 )
 @click.option("--batch-size", "-bs", type=int, default=16, help="... you know what it is.")
-@click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set.")
+@click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set. Set short values (under 100)")
 @click.option(
     "--num-epochs",
     "-e",
     type=int,
     default=1,
-    help="Epochs for fitting Clf+ST on the classification task.",
+    help="Epochs for fitting Clf+SentTF on the main (classification) task.",
 )
 @click.option(
     "--num-epochs-finetune",
     "-eft",
     type=int,
     default=1,
-    help="Epochs for both fine-tuning ST on the cosinesimilarity task.",
+    help="Epochs for both contrastive pretraining of SentTF.",
 )
 @click.option(
     "--test-on-test",
     "-tot",
     is_flag=True,
     default=False,
-    help="If true, we report metrics on testset.",
+    help="If true, we report metrics on testset. If not, on a 20% split of train set. Off by default.",
 )
 @click.option(
-    "--no-retry",
+    "--full-test", "-ft",
     is_flag=True,
     default=False,
     help=(
-        "Only used when prompting (case 3). If flag is raised, we allow the script to fail and die prematurely."
-        "If not, we put it on a forever loop to keep trying. "
+        "We truncate the testset of every dataset to be upto 100 instances. "
+        "If you know what you're doing, you can test on the full dataset."
+        "NOTE that if you're running this in case 3 you should probably be a premium member and not be paying per use."
     ),
 )
 def run(
@@ -401,7 +407,7 @@ def run(
     num_epochs_finetune: int,
     num_sents: int,
     case: int,
-    no_retry: int,
+    full_test: int,
     test_on_test: bool,
 ):
     try:
@@ -419,7 +425,6 @@ def run(
             "num_epochs_finetune": num_epochs_finetune,
             "num_sents": num_sents,
             "test_on_test": test_on_test,
-            "no_retry": no_retry,
         }
     )
 
@@ -427,7 +432,7 @@ def run(
         repeat = 1
         warnings.warn(f"On case 3 i.e. prompting LLMs, we do not repeat to respect the rate limits.")
 
-    if not dataset_name.startswith('SetFit/'):
+    if not dataset_name.startswith("SetFit/"):
         warnings.warn(f"We expect the dataset to have these fields `text`, `label` and `label_text`.")
 
     metrics = []
@@ -440,14 +445,15 @@ def run(
             # suppress prints, allow exceptions
             dataset = load_dataset(dataset_name)
 
-        # Going to truncate the testsets to be 100
-        dataset["test"] = dataset["test"].select(range(100)) if len(dataset["test"]) > 100 else dataset["test"]
+        # Going to truncate the testsets to be 100 (unless flagged otherwise)
+        if (len(dataset)> 100) and not full_test:
+            dataset["test"] = dataset["test"].select(range(100))
 
         # Run the case (based on the case specified in args)
         metric = fname(dataset, seed=seed, **config)
         metrics.append(metric)
 
-    print(f"---------- FINALLY, over {repeat} runs -----------")
+    print(f"---------- FINALLY, over {repeat} runs, with case {case} and dataset {dataset} -----------")
     metrics = merge_metrics(metrics)
     print({k: f"{np.mean(v):.3f} +- {np.std(v):.3f}" for k, v in metrics.items()})
     metrics["config"] = config
