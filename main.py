@@ -123,8 +123,9 @@ def case1(
     Run model to classify on main task
     Report Accuracy
     """
-    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True)
-
+    num_classes = max(dataset['train']['label'])+1
+    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2",
+                                        use_differentiable_head=True, head_params={"out_features": num_classes})
     # Sample num_sents from the dataset. Divide them in 80/20
     train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:

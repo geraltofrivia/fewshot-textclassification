@@ -1,4 +1,4 @@
-from typing import Optional, Any, Dict, Union
+from typing import Optional, Any, Dict, Union, List
 from setfit import SetFitTrainer, SetFitModel
 import numpy as np
 import math
@@ -7,6 +7,7 @@ import torch
 import requests
 import joblib
 from pathlib import Path
+from tqdm.auto import tqdm
 from setfit.trainer import (
     logger,
     losses,
@@ -170,6 +171,54 @@ class CustomModel(SetFitModel):
         optimizer = torch.optim.AdamW(param_groups)
         return optimizer
 
+    # def fit(
+    #     self,
+    #     x_train: List[str],
+    #     y_train: Union[List[int], List[List[int]]],
+    #     num_epochs: int,
+    #     batch_size: Optional[int] = None,
+    #     learning_rate: Optional[float] = None,
+    #     body_learning_rate: Optional[float] = None,
+    #     l2_weight: Optional[float] = None,
+    #     max_length: Optional[int] = None,
+    #     show_progress_bar: Optional[bool] = None,
+    # ) -> None:
+    #     # TODO: delete this function, we dont actually need to override it
+    #     if self.has_differentiable_head:  # train with pyTorch
+    #         device = self.model_body.device
+    #         self.model_body.train()
+    #         self.model_head.train()
+    #
+    #         dataloader = self._prepare_dataloader(x_train, y_train, batch_size, max_length)
+    #         criterion = self.model_head.get_loss_fn()
+    #         optimizer = self._prepare_optimizer(learning_rate, body_learning_rate, l2_weight)
+    #         scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+    #         for epoch_idx in tqdm(range(num_epochs), desc="Epoch", disable=not show_progress_bar):
+    #             for batch in dataloader:
+    #                 features, labels = batch
+    #                 optimizer.zero_grad()
+    #
+    #                 # to model's device
+    #                 features = {k: v.to(device) for k, v in features.items()}
+    #                 labels = labels.to(device)
+    #
+    #                 outputs = self.model_body(features)
+    #                 print("O: ", outputs)
+    #                 print("L: ", labels)
+    #                 if self.normalize_embeddings:
+    #                     outputs = torch.nn.functional.normalize(outputs, p=2, dim=1)
+    #                 outputs = self.model_head(outputs)
+    #                 logits = outputs["logits"]
+    #
+    #                 loss = criterion(logits, labels)
+    #                 loss.backward()
+    #                 optimizer.step()
+    #
+    #             scheduler.step()
+    #     else:  # train with sklearn
+    #         embeddings = self.model_body.encode(x_train, normalize_embeddings=self.normalize_embeddings)
+    #         self.model_head.fit(embeddings, y_train)
+
 
 class CustomTrainer(SetFitTrainer):
     def train(
@@ -259,7 +308,7 @@ class CustomTrainer(SetFitTrainer):
             if not do_fitclf_trainencoder:
                 self.model.freeze("body")
 
-            y_train = np.array(y_train, dtype=np.float)
+            # y_train = np.array(y_train, dtype=np.float)
 
             self.model.fit(
                 x_train,
