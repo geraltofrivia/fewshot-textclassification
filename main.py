@@ -2,6 +2,8 @@
     First we're going to just follow the thing and play with the metrics once done
 
 """
+import json
+from pathlib import Path
 
 import click
 import random
@@ -9,6 +11,8 @@ import numpy.random
 import torch
 from datasets import load_dataset, DatasetDict
 import numpy as np
+from contextlib import contextmanager,redirect_stderr,redirect_stdout
+from os import devnull
 from sentence_transformers.losses import CosineSimilarityLoss
 import math
 from mytorch.utils.goodies import FancyDict
@@ -18,6 +22,14 @@ from overrides import CustomTrainer, CustomModel
 random.seed(42)
 torch.manual_seed(42)
 numpy.random.seed(42)
+
+
+@contextmanager
+def suppress_stdout_stderr():
+    """A context manager that redirects stdout and stderr to devnull"""
+    with open(devnull, 'w') as fnull:
+        with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
+            yield (err, out)
 
 
 def case0(
@@ -197,7 +209,7 @@ def merge_metrics(list_of_metrics):
         for k, v in metrics.items():
             pooled.setdefault(k, []).append(v)
 
-    return {k: np.mean(v) for k, v in pooled.items()}
+    return pooled
 
 
 @click.command()
@@ -278,12 +290,21 @@ def run(
     metrics = []
     for _ in range(repeat):
         seed = random.randint(0, 200)
-        dataset = load_dataset(dataset_name)
+        with suppress_stdout_stderr():
+            # suppress prints, allow exceptions
+            dataset = load_dataset(dataset_name)
         metric = fname(dataset, seed=seed, **config)
         metrics.append(metric)
 
     print(f"---------- FINALLY over {repeat} runs -----------")
-    print(merge_metrics(metrics))
+    metrics = merge_metrics(metrics)
+    print({k: f"{np.mean(v)} +- {np.std(v)}" for k, v in metrics.items()})
+
+    # Dump them to disk
+    dumpdir = Path(f'summaries') / dataset_name.split('/')[-1] / f"case_{case}.json"
+    dumpdir.mkdir(parents=True, exist_ok=True)
+    with dumpdir.open('w+') as f:
+        json.dump(metrics, f)
 
 
 if __name__ == "__main__":
