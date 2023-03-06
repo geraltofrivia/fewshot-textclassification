@@ -441,15 +441,20 @@ def run(
         with suppress_stdout_stderr():
             # suppress prints, allow exceptions
             dataset = load_dataset(dataset_name)
+
+        # Going to truncate the testsets to be 100
+        dataset['test'] = dataset['test'].select(range(100)) if len(dataset['test'] > 100) else dataset['test']
+
+        # Run the case (based on the case specified in args)
         metric = fname(dataset, seed=seed, **config)
         metrics.append(metric)
 
-    print(f"---------- FINALLY over {repeat} runs -----------")
+    print(f"---------- FINALLY, over {repeat} runs -----------")
     metrics = merge_metrics(metrics)
     print({k: f"{np.mean(v):.3f} +- {np.std(v):.3f}" for k, v in metrics.items()})
     metrics["config"] = config
 
-    # Dump them to disk
+    # Dump the summaries to disk
     dumpdir = Path(f"summaries") / f"{dataset_name.split('/')[-1]}_{num_sents}"
     dumpdir.mkdir(parents=True, exist_ok=True)
     with (dumpdir / f"case_{case}.json").open("w+") as f:
