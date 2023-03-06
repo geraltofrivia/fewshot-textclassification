@@ -4,6 +4,9 @@
 """
 import json
 from pathlib import Path
+
+from langchain import HuggingFaceHub, PromptTemplate, FewShotPromptTemplate, LLMChain
+from langchain.prompts.example_selector import LengthBasedExampleSelector
 from setfit.trainer import set_seed
 import click
 import random
@@ -11,11 +14,14 @@ import numpy.random
 import torch
 from datasets import load_dataset, DatasetDict
 import numpy as np
-from contextlib import contextmanager,redirect_stderr,redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from os import devnull
 from sentence_transformers.losses import CosineSimilarityLoss
 import math
+import os
 from mytorch.utils.goodies import FancyDict
+from tqdm.auto import tqdm
+from transformers import AutoConfig
 
 from overrides import CustomTrainer, CustomModel
 
@@ -27,7 +33,7 @@ numpy.random.seed(42)
 @contextmanager
 def suppress_stdout_stderr():
     """A context manager that redirects stdout and stderr to devnull"""
-    with open(devnull, 'w') as fnull:
+    with open(devnull, "w") as fnull:
         with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
             yield (err, out)
 
@@ -73,7 +79,7 @@ def case0(
         eval_dataset=test_ds,
         loss_class=CosineSimilarityLoss,
         batch_size=batch_size,
-        num_iterations=20,  # Number of text pairs to generate for contrastive learning
+        num_iterations=20,  # Number of text S to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
 
@@ -134,7 +140,12 @@ def case1(
 
     # Fit the ST on the cosinesim task; Fit the entire thing on the main task
     # trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune) #, do_fitclf_trainencoder=False)
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_fitclf_trainencoder=True, do_finetune=False)
+    trainer.train(
+        num_epochs=num_epochs,
+        num_epochs_finetune=num_epochs_finetune,
+        do_fitclf_trainencoder=True,
+        do_finetune=False,
+    )
 
     metrics = trainer.evaluate()
     # print(metrics)
@@ -185,7 +196,11 @@ def case2(
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
 
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_finetune=False)
+    trainer.train(
+        num_epochs=num_epochs,
+        num_epochs_finetune=num_epochs_finetune,
+        do_finetune=False,
+    )
 
     metrics = trainer.evaluate()
     # print(metrics)
@@ -202,22 +217,34 @@ def case3(
     test_on_test: bool = False,
 ):
     """
-    Get SetFit model (ST + Dense Head)
-
-    # Step 1
-    Do not fine-tune ST on faux task (Cosine)
-    Just fit DenseHead on the main task (freeze body)
-
-    # Step 2
-    Run model to classify on main task
-    Report Accuracy
+    Uses langchain to throw questions to HF model Flan t5 xl.
     """
-    model = CustomModel.from_pretrained(
-        "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True
-    )
+    # First figure out the length of the model
+    config = AutoConfig.from_pretrained("google/flan-t5-xl")
+    max_len = config.n_positions
 
+    # Read HuggingFace API key
+    try:
+        with (Path(".") / "hf_token.key").open("r") as f:
+            hf_token_key = f.read().strip()
+            os.environ['HUGGINGFACEHUB_API_TOKEN'] = hf_token_key
+    except FileNotFoundError:
+        raise FileNotFoundError(
+            f"No HuggingFace API key found at {(Path('.') / 'hf_token.key').absolute()}"
+            f"You need to generate yours at https://huggingface.co/settings/tokens"
+            f"and paste it in this file."
+        )
+
+    # # initialize Hub LLM
+    hub_llm = HuggingFaceHub(
+        repo_id="google/flan-t5-xl", model_kwargs={"temperature": 1e-10}
+    )
+    # Here we be validatin' if the dataset fits the template or not (have 'text' and 'label_text')
+    # TODO: for now pre-check datasets and send here
+
+    # Go through the dataset, generate train and testset
     # Sample num_sents from the dataset. Divide them in 80/20
-    train_ds = dataset["train"].shuffle(seed=42).select(range(num_sents))
+    train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
@@ -225,23 +252,61 @@ def case3(
             range(int(len(train_ds) * 0.8))
         ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
 
-    # Freeze the head (so we never train/finetune ST)
-    trainer = CustomTrainer(
-        model=model,
-        train_dataset=train_ds,
-        eval_dataset=test_ds,
-        loss_class=CosineSimilarityLoss,
-        batch_size=batch_size,
-        num_iterations=20,  # Number of text pairs to generate for contrastive learning
-        num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
+    """ Prompt stuff """
+    # create a example template
+    example_template = """
+    Review: {query}
+    Sentiment: {answer}
+    """
+    # create a prompt example from above template
+    example_prompt = PromptTemplate(
+        input_variables=["query", "answer"], template=example_template
+    )
+    examples = [{"query": x["text"], "answer": x["label_text"]} for x in train_ds]
+    prefix = """Classify into positive or negative. Here are some examples: """
+    suffix = """
+    Review: {query}
+    Sentiment: 
+    """
+    # We'll use the `LengthBasedExampleSelector` to select the examples.
+    example_selector = LengthBasedExampleSelector(
+        # These are the examples is has available to choose from.
+        examples=examples,
+        # This is the PromptTemplate being used to format the examples.
+        example_prompt=example_prompt,
+        # This is the maximum length that the formatted examples should be.
+        # Length is measured by the get_text_length function below.
+        max_length=max_len,
     )
 
-    trainer.train(num_epochs=num_epochs, num_epochs_finetune=num_epochs_finetune, do_finetune=False)
+    # now create the few shot prompt template
+    few_shot_prompt_template = FewShotPromptTemplate(
+        example_selector=example_selector,
+        example_prompt=example_prompt,
+        prefix=prefix,
+        suffix=suffix,
+        input_variables=["query"],
+        example_separator="\n\n",
+    )
+    llm_chain = LLMChain(prompt=few_shot_prompt_template, llm=hub_llm)
 
-    metrics = trainer.evaluate()
-    print(metrics)
-    return metrics
+    score = []
 
+    for i, item in enumerate(tqdm(test_ds)):
+        answer = llm_chain.run(item["text"])
+
+        if answer.strip().lower() == item["label_text"].strip().lower():
+            score.append(1)
+            continue
+
+        if len(item["label_text"]) * 0.5 > len(answer) > len(item["label_text"]) * 2:
+            raise ValueError(
+                f"The answer to {i}th element is `{answer}`. \n"
+                f"Expected `{item['label_text']}`. "
+            )
+
+        score.append(0)
+    return {"accuracy": np.mean(score)}
 
 
 def merge_metrics(list_of_metrics):
@@ -251,6 +316,9 @@ def merge_metrics(list_of_metrics):
             pooled.setdefault(k, []).append(v)
 
     return pooled
+
+def normalize_dataset(dataset: DatasetDict):
+    """ Check if text and label exist or not. Further if label_text doesn't exist makes 0 as neg 1 as pos """
 
 
 @click.command()
@@ -341,12 +409,12 @@ def run(
     print(f"---------- FINALLY over {repeat} runs -----------")
     metrics = merge_metrics(metrics)
     print({k: f"{np.mean(v):.3f} +- {np.std(v):.3f}" for k, v in metrics.items()})
-    metrics['config'] = config
+    metrics["config"] = config
 
     # Dump them to disk
-    dumpdir = Path(f'summaries') / f"{dataset_name.split('/')[-1]}_{num_sents}"
+    dumpdir = Path(f"summaries") / f"{dataset_name.split('/')[-1]}_{num_sents}"
     dumpdir.mkdir(parents=True, exist_ok=True)
-    with (dumpdir / f"case_{case}.json").open('w+') as f:
+    with (dumpdir / f"case_{case}.json").open("w+") as f:
         json.dump(metrics, f)
 
 
