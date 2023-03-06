@@ -72,6 +72,8 @@ Or you can simply run `./run.sh` after installing the required libraries (see `r
 Afterwards, you can run the notebook `summarise.ipynb` to summarize and visualize (if I get around to adding this code)
 the results.
 
+> PS: Pay attention to `--full-test`. By default we truncate every test set to its first 100 instances.
+
 ## Datasets Used
 
 - [SetFit/SentEval-CR](https://huggingface.co/datasets/SetFit/SentEval-CR)
