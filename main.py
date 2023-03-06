@@ -3,6 +3,7 @@
 
 """
 import json
+import warnings
 from pathlib import Path
 
 from langchain import HuggingFaceHub, PromptTemplate, FewShotPromptTemplate, LLMChain
@@ -20,6 +21,7 @@ from sentence_transformers.losses import CosineSimilarityLoss
 import math
 import os
 from mytorch.utils.goodies import FancyDict
+from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import AutoConfig
 
@@ -211,10 +213,9 @@ def case3(
     dataset: DatasetDict,
     seed: int,
     num_sents: int,
-    num_epochs: int,
-    num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
+    *args, **kwargs
 ):
     """
     Uses langchain to throw questions to HF model Flan t5 xl.
@@ -227,7 +228,7 @@ def case3(
     try:
         with (Path(".") / "hf_token.key").open("r") as f:
             hf_token_key = f.read().strip()
-            os.environ['HUGGINGFACEHUB_API_TOKEN'] = hf_token_key
+            os.environ["HUGGINGFACEHUB_API_TOKEN"] = hf_token_key
     except FileNotFoundError:
         raise FileNotFoundError(
             f"No HuggingFace API key found at {(Path('.') / 'hf_token.key').absolute()}"
@@ -239,8 +240,9 @@ def case3(
     hub_llm = HuggingFaceHub(
         repo_id="google/flan-t5-xl", model_kwargs={"temperature": 1e-10}
     )
-    # Here we be validatin' if the dataset fits the template or not (have 'text' and 'label_text')
-    # TODO: for now pre-check datasets and send here
+
+    label_to_id = {"negative": 0, "positive": 1}
+    id_to_label = {v: k for k, v in label_to_id.items()}
 
     # Go through the dataset, generate train and testset
     # Sample num_sents from the dataset. Divide them in 80/20
@@ -262,7 +264,9 @@ def case3(
     example_prompt = PromptTemplate(
         input_variables=["query", "answer"], template=example_template
     )
-    examples = [{"query": x["text"], "answer": x["label_text"]} for x in train_ds]
+    examples = [
+        {"query": x["text"], "answer": id_to_label[x["label"]]} for x in train_ds
+    ]
     prefix = """Classify into positive or negative. Here are some examples: """
     suffix = """
     Review: {query}
@@ -291,21 +295,24 @@ def case3(
     llm_chain = LLMChain(prompt=few_shot_prompt_template, llm=hub_llm)
 
     score = []
+    for batch in tqdm(DataLoader(test_ds, batch_size=batch_size)):
+        texts = [{"query": instance} for instance in batch["text"]]
+        answers = llm_chain.generate(texts)
 
-    for i, item in enumerate(tqdm(test_ds)):
-        answer = llm_chain.run(item["text"])
+        # Iterate through answers and labels
+        for i, generation in enumerate(answers.generations):
+            answer = generation[0].text.strip().lower()
+            try:
+                if batch["label"][i] == label_to_id[answer]:
+                    score.append(1)
+                else:
+                    score.append(0)
+            except KeyError:
+                warnings.warn(
+                    f"The answer to {i}th element is `{answer}`. Marking this as a wrong instance."
+                )
+                score.append(0)
 
-        if answer.strip().lower() == item["label_text"].strip().lower():
-            score.append(1)
-            continue
-
-        if len(item["label_text"]) * 0.5 > len(answer) > len(item["label_text"]) * 2:
-            raise ValueError(
-                f"The answer to {i}th element is `{answer}`. \n"
-                f"Expected `{item['label_text']}`. "
-            )
-
-        score.append(0)
     return {"accuracy": np.mean(score)}
 
 
@@ -317,8 +324,9 @@ def merge_metrics(list_of_metrics):
 
     return pooled
 
+
 def normalize_dataset(dataset: DatasetDict):
-    """ Check if text and label exist or not. Further if label_text doesn't exist makes 0 as neg 1 as pos """
+    """Check if text and label exist or not. Further if label_text doesn't exist makes 0 as neg 1 as pos"""
 
 
 @click.command()
@@ -395,6 +403,10 @@ def run(
             "test_on_test": test_on_test,
         }
     )
+
+    if case == 3:
+        repeat = 1
+        warnings.warn(f"On case 3 i.e. prompting LLMs, we do not repeat to respect the rate limits.")
 
     metrics = []
     for _ in range(repeat):
