@@ -259,6 +259,8 @@ class CustomTrainer(SetFitTrainer):
             if not do_fitclf_trainencoder:
                 self.model.freeze("body")
 
+            y_train = np.array(y_train, dtype=np.float)
+
             self.model.fit(
                 x_train,
                 y_train,

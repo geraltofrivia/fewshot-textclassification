@@ -20,12 +20,16 @@ from os import devnull
 from sentence_transformers.losses import CosineSimilarityLoss
 import math
 import os
+import langchain
 from mytorch.utils.goodies import FancyDict
 from torch.utils.data import DataLoader
 from tqdm.auto import tqdm
 from transformers import AutoConfig
 
 from overrides import CustomTrainer, CustomModel
+from langchain.cache import InMemoryCache
+langchain.llm_cache = InMemoryCache()
+
 
 random.seed(42)
 torch.manual_seed(42)
@@ -48,6 +52,7 @@ def case0(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
+*args, **kwargs
 ) -> dict:
     """
     Do exactly what the blogpost does
@@ -101,6 +106,7 @@ def case1(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
+    *args, **kwargs
 ) -> dict:
     """
     This is regular fine-tuning. Noisy.
@@ -162,6 +168,7 @@ def case2(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
+*args, **kwargs
 ):
     """
     Get SetFit model (ST + LogClf Head)
@@ -214,6 +221,7 @@ def case3(
     seed: int,
     num_sents: int,
     batch_size: int,
+no_retry: bool,
     test_on_test: bool = False,
     *args, **kwargs
 ):
@@ -297,7 +305,18 @@ def case3(
     score = []
     for batch in tqdm(DataLoader(test_ds, batch_size=batch_size)):
         texts = [{"query": instance} for instance in batch["text"]]
+
+        answers = None
         answers = llm_chain.generate(texts)
+        # while not no_retry:
+        #     try:
+        #         answers = llm_chain.generate(texts)
+        #     except ValueError as e:
+        #         print(e) # so you can see the error.
+        #         if input("Enter `q` to stop, else we keep trying to send this request again.") == 'q':
+        #             break
+        #         else:
+        #             continue
 
         # Iterate through answers and labels
         for i, generation in enumerate(answers.generations):
@@ -308,9 +327,7 @@ def case3(
                 else:
                     score.append(0)
             except KeyError:
-                warnings.warn(
-                    f"The answer to {i}th element is `{answer}`. Marking this as a wrong instance."
-                )
+                warnings.warn(f"The answer to {i}th element is `{answer}`.")
                 score.append(0)
 
     return {"accuracy": np.mean(score)}
@@ -376,6 +393,13 @@ def normalize_dataset(dataset: DatasetDict):
     default=False,
     help="If true, we report metrics on testset.",
 )
+@click.option(
+    "--no-retry",
+    is_flag=True,
+    default=False,
+    help="Only used when prompting (case 3). If flag is raised, we allow the script to fail and die prematurely."
+         "If not, we put it on a forever loop to keep trying. ",
+)
 def run(
     dataset_name: str,
     repeat: int,
@@ -384,6 +408,7 @@ def run(
     num_epochs_finetune: int,
     num_sents: int,
     case: int,
+    no_retry: int,
     test_on_test: bool,
 ):
     try:
@@ -401,6 +426,7 @@ def run(
             "num_epochs_finetune": num_epochs_finetune,
             "num_sents": num_sents,
             "test_on_test": test_on_test,
+            "no_retry": no_retry
         }
     )
 
