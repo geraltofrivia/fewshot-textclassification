@@ -259,39 +259,39 @@ def merge_metrics(list_of_metrics):
     "-d",
     type=str,
     default="SetFit/SentEval-CR",
-    help="The name of the dataset eg SetFit/SentEval-CR",
+    help="The name of the dataset eg SetFit/SentEval-CR | imdb | ...",
 )
 @click.option(
     "--case",
     "-c",
     type=int,
     required=True,
-    help="Which case to run. See case docstrings for info.",
+    help="Which case to run. See case docstrings for info. Values between 0,1, and 2. You can run 3 but its useless.",
 )
 @click.option(
     "--repeat",
     "-r",
     type=int,
     default=1,
-    help="The number of times we should run the entire codebase",
+    help="The number of times we should run the entire experiment (changing the seed).",
 )
 @click.option(
-    "--batch-size", "-bs", type=int, default=16, help="... you know what it is"
+    "--batch-size", "-bs", type=int, default=16, help="... you know what it is."
 )
-@click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set")
+@click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set.")
 @click.option(
     "--num-epochs",
     "-e",
     type=int,
     default=1,
-    help="Epochs for fitting Clf+ST",
+    help="Epochs for fitting Clf+ST on the classification task.",
 )
 @click.option(
     "--num-epochs-finetune",
     "-eft",
     type=int,
     default=1,
-    help="Epochs for both fine-tuning ST",
+    help="Epochs for both fine-tuning ST on the cosinesimilarity task.",
 )
 @click.option(
     "--test-on-test",
