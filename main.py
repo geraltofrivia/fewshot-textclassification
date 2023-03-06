@@ -28,6 +28,7 @@ from transformers import AutoConfig
 
 from overrides import CustomTrainer, CustomModel
 from langchain.cache import InMemoryCache
+
 langchain.llm_cache = InMemoryCache()
 
 
@@ -52,7 +53,8 @@ def case0(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
-*args, **kwargs
+    *args,
+    **kwargs,
 ) -> dict:
     """
     Do exactly what the blogpost does
@@ -67,18 +69,16 @@ def case0(
     Run model to classify on main task
     Report Accuracy
     """
-    model = CustomModel.from_pretrained(
-        "sentence-transformers/paraphrase-mpnet-base-v2"
-    )
+    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2")
 
     # Sample num_sents from the dataset. Divide them in 80/20
     train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
-        train_ds, test_ds = train_ds.select(
-            range(int(len(train_ds) * 0.8))
-        ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
+        train_ds, test_ds = train_ds.select(range(int(len(train_ds) * 0.8))), train_ds.select(
+            range(int(len(train_ds) * 0.8), len(train_ds))
+        )
 
     trainer = CustomTrainer(
         model=model,
@@ -106,7 +106,8 @@ def case1(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
-    *args, **kwargs
+    *args,
+    **kwargs,
 ) -> dict:
     """
     This is regular fine-tuning. Noisy.
@@ -122,18 +123,16 @@ def case1(
     Run model to classify on main task
     Report Accuracy
     """
-    model = CustomModel.from_pretrained(
-        "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True
-    )
+    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=True)
 
     # Sample num_sents from the dataset. Divide them in 80/20
     train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
-        train_ds, test_ds = train_ds.select(
-            range(int(len(train_ds) * 0.8))
-        ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
+        train_ds, test_ds = train_ds.select(range(int(len(train_ds) * 0.8))), train_ds.select(
+            range(int(len(train_ds) * 0.8), len(train_ds))
+        )
 
     trainer = CustomTrainer(
         model=model,
@@ -168,7 +167,8 @@ def case2(
     num_epochs_finetune: int,
     batch_size: int,
     test_on_test: bool = False,
-*args, **kwargs
+    *args,
+    **kwargs,
 ):
     """
     Get SetFit model (ST + LogClf Head)
@@ -181,18 +181,16 @@ def case2(
     Run model to classify on main task
     Report Accuracy
     """
-    model = CustomModel.from_pretrained(
-        "sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=False
-    )
+    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2", use_differentiable_head=False)
 
     # Sample num_sents from the dataset. Divide them in 80/20
     train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
         test_ds = dataset["test"]
     else:
-        train_ds, test_ds = train_ds.select(
-            range(int(len(train_ds) * 0.8))
-        ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
+        train_ds, test_ds = train_ds.select(range(int(len(train_ds) * 0.8))), train_ds.select(
+            range(int(len(train_ds) * 0.8), len(train_ds))
+        )
 
     # Freeze the head (so we never train/finetune ST)
     trainer = CustomTrainer(
@@ -221,9 +219,10 @@ def case3(
     seed: int,
     num_sents: int,
     batch_size: int,
-no_retry: bool,
+    no_retry: bool,
     test_on_test: bool = False,
-    *args, **kwargs
+    *args,
+    **kwargs,
 ):
     """
     Uses langchain to throw questions to HF model Flan t5 xl.
@@ -240,17 +239,15 @@ no_retry: bool,
     except FileNotFoundError:
         raise FileNotFoundError(
             f"No HuggingFace API key found at {(Path('.') / 'hf_token.key').absolute()}"
-            f"You need to generate yours at https://huggingface.co/settings/tokens"
-            f"and paste it in this file."
+            "You need to generate yours at https://huggingface.co/settings/tokens"
+            "and paste it in this file."
         )
 
     # # initialize Hub LLM
-    hub_llm = HuggingFaceHub(
-        repo_id="google/flan-t5-xl", model_kwargs={"temperature": 1e-10}
-    )
+    hub_llm = HuggingFaceHub(repo_id="google/flan-t5-xl", model_kwargs={"temperature": 1e-10})
 
-    label_to_id = {"negative": 0, "positive": 1}
-    id_to_label = {v: k for k, v in label_to_id.items()}
+    # label_to_id = {"negative": 0, "positive": 1}
+    # id_to_label = {v: k for k, v in label_to_id.items()}
 
     # Go through the dataset, generate train and testset
     # Sample num_sents from the dataset. Divide them in 80/20
@@ -258,9 +255,9 @@ no_retry: bool,
     if test_on_test:
         test_ds = dataset["test"]
     else:
-        train_ds, test_ds = train_ds.select(
-            range(int(len(train_ds) * 0.8))
-        ), train_ds.select(range(int(len(train_ds) * 0.8), len(train_ds)))
+        train_ds, test_ds = train_ds.select(range(int(len(train_ds) * 0.8))), train_ds.select(
+            range(int(len(train_ds) * 0.8), len(train_ds))
+        )
 
     """ Prompt stuff """
     # create a example template
@@ -269,12 +266,8 @@ no_retry: bool,
     Sentiment: {answer}
     """
     # create a prompt example from above template
-    example_prompt = PromptTemplate(
-        input_variables=["query", "answer"], template=example_template
-    )
-    examples = [
-        {"query": x["text"], "answer": id_to_label[x["label"]]} for x in train_ds
-    ]
+    example_prompt = PromptTemplate(input_variables=["query", "answer"], template=example_template)
+    examples = [{"query": x["text"], "answer": x["label_text"]} for x in train_ds]
     prefix = """Classify into positive or negative. Here are some examples: """
     suffix = """
     Review: {query}
@@ -322,7 +315,7 @@ no_retry: bool,
         for i, generation in enumerate(answers.generations):
             answer = generation[0].text.strip().lower()
             try:
-                if batch["label"][i] == label_to_id[answer]:
+                if batch["label_text"][i] == answer:
                     score.append(1)
                 else:
                     score.append(0)
@@ -352,7 +345,7 @@ def normalize_dataset(dataset: DatasetDict):
     "-d",
     type=str,
     default="SetFit/SentEval-CR",
-    help="The name of the dataset eg SetFit/SentEval-CR | imdb | ...",
+    help="The name of the dataset eg SetFit/SentEval-CR | SetFit/bbc-news | SetFit/enron_spam ",
 )
 @click.option(
     "--case",
@@ -368,9 +361,7 @@ def normalize_dataset(dataset: DatasetDict):
     default=1,
     help="The number of times we should run the entire experiment (changing the seed).",
 )
-@click.option(
-    "--batch-size", "-bs", type=int, default=16, help="... you know what it is."
-)
+@click.option("--batch-size", "-bs", type=int, default=16, help="... you know what it is.")
 @click.option("--num-sents", "-ns", type=int, default=64, help="Size of our train set.")
 @click.option(
     "--num-epochs",
@@ -397,8 +388,10 @@ def normalize_dataset(dataset: DatasetDict):
     "--no-retry",
     is_flag=True,
     default=False,
-    help="Only used when prompting (case 3). If flag is raised, we allow the script to fail and die prematurely."
-         "If not, we put it on a forever loop to keep trying. ",
+    help=(
+        "Only used when prompting (case 3). If flag is raised, we allow the script to fail and die prematurely."
+        "If not, we put it on a forever loop to keep trying. "
+    ),
 )
 def run(
     dataset_name: str,
@@ -426,13 +419,16 @@ def run(
             "num_epochs_finetune": num_epochs_finetune,
             "num_sents": num_sents,
             "test_on_test": test_on_test,
-            "no_retry": no_retry
+            "no_retry": no_retry,
         }
     )
 
     if case == 3:
         repeat = 1
         warnings.warn(f"On case 3 i.e. prompting LLMs, we do not repeat to respect the rate limits.")
+
+    if not dataset_name.startswith('SetFit/'):
+        warnings.warn(f"We expect the dataset to have these fields `text`, `label` and `label_text`.")
 
     metrics = []
     for _ in range(repeat):
@@ -443,7 +439,7 @@ def run(
             dataset = load_dataset(dataset_name)
 
         # Going to truncate the testsets to be 100
-        dataset['test'] = dataset['test'].select(range(100)) if len(dataset['test'] > 100) else dataset['test']
+        dataset["test"] = dataset["test"].select(range(100)) if len(dataset["test"] > 100) else dataset["test"]
 
         # Run the case (based on the case specified in args)
         metric = fname(dataset, seed=seed, **config)
