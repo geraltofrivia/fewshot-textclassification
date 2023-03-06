@@ -268,7 +268,7 @@ def case3(
     # create a prompt example from above template
     example_prompt = PromptTemplate(input_variables=["query", "answer"], template=example_template)
     examples = [{"query": x["text"], "answer": x["label_text"]} for x in train_ds]
-    prefix = """Classify into positive or negative. Here are some examples: """
+    prefix = f"""Classify into {' or '.join(set(dataset['train']['label_text']))}. Here are some examples: """
     suffix = """
     Review: {query}
     Sentiment: 
@@ -434,12 +434,14 @@ def run(
     for _ in range(repeat):
         seed = random.randint(0, 200)
         set_seed(seed)
+
+        # Pull the dataset
         with suppress_stdout_stderr():
             # suppress prints, allow exceptions
             dataset = load_dataset(dataset_name)
 
         # Going to truncate the testsets to be 100
-        dataset["test"] = dataset["test"].select(range(100)) if len(dataset["test"] > 100) else dataset["test"]
+        dataset["test"] = dataset["test"].select(range(100)) if len(dataset["test"]) > 100 else dataset["test"]
 
         # Run the case (based on the case specified in args)
         metric = fname(dataset, seed=seed, **config)
