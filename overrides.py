@@ -1,18 +1,13 @@
-from typing import Optional, Any, Dict, Union, List
-from setfit import SetFitTrainer, SetFitModel
-import numpy as np
 import math
 import os
-import torch
-import requests
-import joblib
 from pathlib import Path
-from tqdm.auto import tqdm
-from setfit.trainer import (
-    logger,
-    losses,
-    sentence_pairs_generation
-)
+from typing import Optional, Any, Dict, Union
+
+import joblib
+import numpy as np
+import requests
+import torch
+from setfit import SetFitTrainer, SetFitModel
 from setfit.modeling import (
     OneVsRestClassifier,
     SentenceTransformer,
@@ -22,6 +17,11 @@ from setfit.modeling import (
     LogisticRegression,
     MultiOutputClassifier,
     ClassifierChain
+)
+from setfit.trainer import (
+    logger,
+    losses,
+    sentence_pairs_generation
 )
 from torch.utils.data import DataLoader
 

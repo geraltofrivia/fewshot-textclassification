@@ -3,31 +3,29 @@
 
 """
 import json
+import os
+import random
 import warnings
 from pathlib import Path
 
-from langchain import HuggingFaceHub, PromptTemplate, FewShotPromptTemplate, LLMChain
-from langchain.prompts.example_selector import LengthBasedExampleSelector
-from setfit.trainer import set_seed
 import click
-import random
+import langchain
+import numpy as np
 import numpy.random
 import torch
 from datasets import load_dataset, DatasetDict
-import numpy as np
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
-from os import devnull
-from sentence_transformers.losses import CosineSimilarityLoss
-import math
-import os
-import langchain
+from datasets.features.features import ClassLabel
+from langchain import HuggingFaceHub, PromptTemplate, FewShotPromptTemplate, LLMChain
+from langchain.cache import InMemoryCache
+from langchain.prompts.example_selector import LengthBasedExampleSelector
 from mytorch.utils.goodies import FancyDict
+from sentence_transformers.losses import CosineSimilarityLoss
+from setfit.trainer import set_seed
 from torch.utils.data import DataLoader
-from tqdm.auto import tqdm
+from tqdm.auto import tqdm, trange
 from transformers import AutoConfig
 
 from overrides import CustomTrainer, CustomModel
-from langchain.cache import InMemoryCache
 
 langchain.llm_cache = InMemoryCache()
 
@@ -37,12 +35,39 @@ torch.manual_seed(42)
 numpy.random.seed(42)
 
 
-@contextmanager
-def suppress_stdout_stderr():
-    """A context manager that redirects stdout and stderr to devnull"""
-    with open(devnull, "w") as fnull:
-        with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
-            yield (err, out)
+# @contextmanager
+# def suppress_stdout_stderr():
+#     """A context manager that redirects stdout and stderr to devnull"""
+#     with open(devnull, "w") as fnull:
+#         with redirect_stderr(fnull) as err, redirect_stdout(fnull) as out:
+#             yield (err, out)
+
+
+def sanitize_dataset(dataset: DatasetDict):
+    """make sure the has everything we need: text label, label_dict"""
+    if "label_text" in dataset["train"].column_names:
+        return dataset
+
+    # check if label field has this information and if so, make it into a column
+    elif isinstance(dataset["train"].features["label"], ClassLabel) and hasattr(
+        dataset["train"].features["label"], "names"
+    ):
+        id_to_label = {_id: _label for _id, _label in enumerate(dataset["train"].features["label"].names)}
+        for k, v in dataset.items():
+            if k == "unsupervised":
+                continue
+            dataset[k] = dataset[k].add_column("label_text", [id_to_label[label] for label in dataset[k]["label"]])
+        return dataset
+
+    elif len(set(dataset["train"]["label"])) == 2:
+        # its a binary task; assume 0 as neg; 1 as pos
+        id_to_label = {0: "negative", 1: "positive"}
+        for k, v in dataset.items():
+            dataset[k] = dataset[k].add_column("label_text", [id_to_label[label] for label in dataset[k]["label"]])
+        return dataset
+
+    else:
+        raise ValueError("The given dataset seems incompatible for the task.")
 
 
 def case0(
@@ -51,6 +76,7 @@ def case0(
     num_sents: int,
     num_epochs: int,
     num_epochs_finetune: int,
+    num_iters: int,
     batch_size: int,
     test_on_test: bool = False,
     *args,
@@ -86,7 +112,7 @@ def case0(
         eval_dataset=test_ds,
         loss_class=CosineSimilarityLoss,
         batch_size=batch_size,
-        num_iterations=20,  # Number of text S to generate for contrastive learning
+        num_iterations=num_iters,  # Number of text S to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
 
@@ -104,6 +130,7 @@ def case1(
     num_sents: int,
     num_epochs: int,
     num_epochs_finetune: int,
+    num_iters: int,
     batch_size: int,
     test_on_test: bool = False,
     *args,
@@ -123,10 +150,13 @@ def case1(
     Run model to classify on main task
     Report Accuracy
     """
-    num_classes = max(dataset['train']['label'])+1
-    num_classes = max(dataset['train']['label'])+1
-    model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2",
-                                        use_differentiable_head=True, head_params={"out_features": num_classes})
+    num_classes = max(dataset["train"]["label"]) + 1
+    num_classes = max(dataset["train"]["label"]) + 1
+    model = CustomModel.from_pretrained(
+        "sentence-transformers/paraphrase-mpnet-base-v2",
+        use_differentiable_head=True,
+        head_params={"out_features": num_classes},
+    )
     # Sample num_sents from the dataset. Divide them in 80/20
     train_ds = dataset["train"].shuffle(seed=seed).select(range(num_sents))
     if test_on_test:
@@ -142,7 +172,7 @@ def case1(
         eval_dataset=test_ds,
         loss_class=CosineSimilarityLoss,
         batch_size=batch_size,
-        num_iterations=20,  # Number of text pairs to generate for contrastive learning
+        num_iterations=num_iters,  # Number of text pairs to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
     # trainer.se
@@ -167,6 +197,7 @@ def case2(
     num_sents: int,
     num_epochs: int,
     num_epochs_finetune: int,
+    num_iters: int,
     batch_size: int,
     test_on_test: bool = False,
     *args,
@@ -201,7 +232,7 @@ def case2(
         eval_dataset=test_ds,
         loss_class=CosineSimilarityLoss,
         batch_size=batch_size,
-        num_iterations=20,  # Number of text pairs to generate for contrastive learning
+        num_iterations=num_iters,  # Number of text pairs to generate for contrastive learning
         num_epochs=num_epochs,  # Number of epochs to use for contrastive learning
     )
 
@@ -351,19 +382,23 @@ def normalize_dataset(dataset: DatasetDict):
     "-d",
     type=str,
     default="SetFit/SentEval-CR",
-    help="The name of the dataset as it appears on the HuggingFace hub "
-         "e.g. SetFit/SentEval-CR | SetFit/bbc-news | SetFit/enron_spam ... ",
+    help=(
+        "The name of the dataset as it appears on the HuggingFace hub "
+        "e.g. SetFit/SentEval-CR | SetFit/bbc-news | SetFit/enron_spam ... "
+    ),
 )
 @click.option(
     "--case",
     "-c",
     type=int,
     required=True,
-    help="0, 1, 2, or 3: which experiment are we running. See readme or docstrings to know more but briefly: "
-         "**0**: SentTF -> Constrastive Pretrain -> +LogReg on task. "
-         "**1**: SentTF -> +Dense on task. "
-         "**2**: SentTF -> +LogReg on task. "
-         "**3**: FewShotPrompting based Clf over Flan-t5-xl",
+    help=(
+        "0, 1, 2, or 3: which experiment are we running. See readme or docstrings to know more but briefly: "
+        "**0**: SentTF -> Constrastive Pretrain -> +LogReg on task. "
+        "**1**: SentTF -> +Dense on task. "
+        "**2**: SentTF -> +LogReg on task. "
+        "**3**: FewShotPrompting based Clf over Flan-t5-xl"
+    ),
 )
 @click.option(
     "--repeat",
@@ -389,6 +424,13 @@ def normalize_dataset(dataset: DatasetDict):
     help="Epochs for both contrastive pretraining of SentTF.",
 )
 @click.option(
+    "--num-iters",
+    "-ni",
+    type=int,
+    default=20,
+    help="Number of text pairs to generate for contrastive learning. Values above 20 can get expensive to train.",
+)
+@click.option(
     "--test-on-test",
     "-tot",
     is_flag=True,
@@ -396,7 +438,8 @@ def normalize_dataset(dataset: DatasetDict):
     help="If true, we report metrics on testset. If not, on a 20% split of train set. Off by default.",
 )
 @click.option(
-    "--full-test", "-ft",
+    "--full-test",
+    "-ft",
     is_flag=True,
     default=False,
     help=(
@@ -412,6 +455,7 @@ def run(
     num_epochs: int,
     num_epochs_finetune: int,
     num_sents: int,
+    num_iters: int,
     case: int,
     full_test: int,
     test_on_test: bool,
@@ -430,6 +474,7 @@ def run(
             "num_epochs": num_epochs,
             "num_epochs_finetune": num_epochs_finetune,
             "num_sents": num_sents,
+            "num_iters": num_iters,
             "test_on_test": test_on_test,
         }
     )
@@ -442,14 +487,15 @@ def run(
         warnings.warn(f"We expect the dataset to have these fields `text`, `label` and `label_text`.")
 
     metrics = []
-    for _ in range(repeat):
+    for _ in trange(repeat, desc=f"Case: {case} | DS: {dataset_name}"):
         seed = random.randint(0, 200)
         set_seed(seed)
 
         # Pull the dataset
-        with suppress_stdout_stderr():
-            # suppress prints, allow exceptions
-            dataset = load_dataset(dataset_name)
+        dataset = load_dataset(dataset_name)
+
+        # Make sure the dataset is consistent (has label, text, and label_text fields)
+        dataset = sanitize_dataset(dataset)
 
         # Going to truncate the testsets to be 100 (unless flagged otherwise)
         if (len(dataset["test"]) > 100) and not full_test:

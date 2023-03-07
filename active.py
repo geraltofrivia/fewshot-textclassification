@@ -1,21 +1,21 @@
 """
     Here we be bussin about that active learning thingamajing
 """
+import gc
+
 import datasets
-import logging
 import numpy as np
-
-from small_text.integrations.transformers.classifiers.setfit import SetFitModelArguments
-from small_text.integrations.transformers.classifiers.factories import SetFitClassificationFactory
-from small_text import TextDataset
-
+import torch
+from sklearn.metrics import accuracy_score
 from small_text import (
     PoolBasedActiveLearner,
     random_initialization_balanced,
     BreakingTies,
     SubsamplingQueryStrategy
 )
-
+from small_text import TextDataset
+from small_text.integrations.transformers.classifiers.factories import SetFitClassificationFactory
+from small_text.integrations.transformers.classifiers.setfit import SetFitModelArguments
 
 raw_dataset = datasets.load_dataset("imdb")
 num_classes = np.unique(raw_dataset["train"]["label"]).shape[0]
@@ -31,8 +31,10 @@ test = TextDataset.from_arrays(
 
 sentence_transformer_model_name = "sentence-transformers/paraphrase-mpnet-base-v2"
 setfit_model_args = SetFitModelArguments(sentence_transformer_model_name)
-# @pri: this can generate SetFitClassification models which has both setfit trainer and setfit model and does some other stuff
-# TODO: we can replace that
+
+# @pri: this can generate SetFitClassification models which has both
+# setfit trainer and setfit model and does some other stuff
+# we can replace this by a custom factory and import our overrides stuff but we don't need to for now.
 clf_factory = SetFitClassificationFactory(setfit_model_args, num_classes)
 
 
@@ -60,11 +62,8 @@ def initialize_active_learner(active_learner, y_train):
 initial_indices = initialize_active_learner(active_learner, train.y)
 labeled_indices = initial_indices
 
-import gc
-import torch
-from sklearn.metrics import accuracy_score
 
-num_queries = 10
+num_queries = 9
 
 
 def evaluate(active_learner, train, test):

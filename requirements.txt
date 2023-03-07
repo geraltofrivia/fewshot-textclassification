@@ -1,5 +1,5 @@
 click~=7.1.2
-numpy~=1.19.5
+numpy
 torch~=1.11.0
 langchain~=0.0.101
 setfit~=0.6.0
