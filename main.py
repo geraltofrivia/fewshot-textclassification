@@ -443,7 +443,7 @@ def normalize_dataset(dataset: DatasetDict):
     is_flag=True,
     default=False,
     help=(
-        "We truncate the testset of every dataset to be upto 100 instances. "
+        "We truncate the testset of every dataset to have 100 instances. "
         "If you know what you're doing, you can test on the full dataset."
         "NOTE that if you're running this in case 3 you should probably be a premium member and not be paying per use."
     ),
@@ -499,7 +499,7 @@ def run(
 
         # Going to truncate the testsets to be 100 (unless flagged otherwise)
         if (len(dataset["test"]) > 100) and not full_test:
-            dataset["test"] = dataset["test"].select(range(100))
+            dataset["test"] = dataset["test"].shuffle(seed).select(range(100))
 
         # Run the case (based on the case specified in args)
         metric = fname(dataset, seed=seed, **config)

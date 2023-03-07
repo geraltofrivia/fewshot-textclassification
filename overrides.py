@@ -267,6 +267,7 @@ class CustomTrainer(SetFitTrainer):
 
         num_epochs = num_epochs or self.num_epochs
         batch_size = batch_size or self.batch_size
+        # batch_size = batch_size or self.batch_size
         learning_rate = learning_rate or self.learning_rate
 
         # If head is logclf -> always do this: why??
