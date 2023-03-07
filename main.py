@@ -452,7 +452,7 @@ def run(
             dataset = load_dataset(dataset_name)
 
         # Going to truncate the testsets to be 100 (unless flagged otherwise)
-        if (len(dataset)> 100) and not full_test:
+        if (len(dataset["test"]) > 100) and not full_test:
             dataset["test"] = dataset["test"].select(range(100))
 
         # Run the case (based on the case specified in args)
