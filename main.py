@@ -124,6 +124,7 @@ def case1(
     Report Accuracy
     """
     num_classes = max(dataset['train']['label'])+1
+    num_classes = max(dataset['train']['label'])+1
     model = CustomModel.from_pretrained("sentence-transformers/paraphrase-mpnet-base-v2",
                                         use_differentiable_head=True, head_params={"out_features": num_classes})
     # Sample num_sents from the dataset. Divide them in 80/20
@@ -295,6 +296,10 @@ def case3(
     )
     llm_chain = LLMChain(prompt=few_shot_prompt_template, llm=hub_llm)
 
+    # Bug found: can't use dataloader if dataset has datetime
+    if "date" in test_ds.column_names:
+        test_ds = test_ds.remove_columns("date")
+
     score = []
     for batch in tqdm(DataLoader(test_ds, batch_size=batch_size)):
         texts = [{"query": instance} for instance in batch["text"]]
@@ -454,7 +459,7 @@ def run(
         metric = fname(dataset, seed=seed, **config)
         metrics.append(metric)
 
-    print(f"---------- FINALLY, over {repeat} runs, with case {case} and dataset {dataset} -----------")
+    print(f"---------- FINALLY, over {repeat} runs, with case {case} and dataset {dataset_name} -----------")
     metrics = merge_metrics(metrics)
     print({k: f"{np.mean(v):.3f} +- {np.std(v):.3f}" for k, v in metrics.items()})
     metrics["config"] = config
