@@ -1,6 +1,6 @@
 click~=7.1.2
 numpy
-torch~=1.11.0
+torch~=1.13.1
 langchain~=0.0.101
 setfit~=0.6.0
 datasets~=2.10.1
@@ -9,3 +9,5 @@ transformers~=4.26.1
 overrides~=3.1.0
 requests~=2.25.1
 joblib~=1.2.0
+sklearn~=0.0
+scikit-learn~=1.2.1

@@ -23,7 +23,6 @@ from small_text.integrations.transformers.classifiers.factories import SetFitCla
 from small_text.integrations.transformers.classifiers.setfit import SetFitModelArguments
 
 
-# TODO: click stuff comes here
 @click.command()
 @click.option(
     "--dataset-name",
