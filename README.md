@@ -134,11 +134,13 @@ This table presents the results of this + the Active Learning Setup. Unless spec
 
 |                          | bbc-news      | sst2          | SentEval-CR   | imdb          | enron_spam    |
 |--------------------------|---------------|---------------|---------------|---------------|---------------|
-| SetFit FT                | N/A           | N/A           | 0.882 ± 0.029 | 0.924 ± 0.026 | N/A           |
-| No Contrastive SetFit FT | N/A           | N/A           | 0.886 ± 0.005 | 0.902 ± 0.019 | N/A           |
-| Regular FT               | N/A           | N/A           | 0.582 ± 0.054 | 0.836 ± 0.166 | N/A           |
-| LLM Prompting [1]        | 0.950 ± 0.000 | 0.930 ± 0.000 | 0.900 ± 0.000 | 0.930 ± 0.000 | 0.820 ± 0.000 |
-| Constrastive AL [2]      | 0.974 ± 0.000 | 0.925 ± 0.000 | N/A           | 0.926 ± 0.000 | N/A           |
+| SetFit FT                | 0.978 ± 0.004 | 0.860 ± 0.018 | 0.882 ± 0.029 | 0.924 ± 0.026 | 0.960 ± 0.017 |
+| No Contrastive SetFit FT | 0.932 ± 0.015 | 0.854 ± 0.019 | 0.886 ± 0.005 | 0.902 ± 0.019 | 0.942 ± 0.020 |
+| Regular FT               | 0.466 ± 0.133 | 0.628 ± 0.098 | 0.582 ± 0.054 | 0.836 ± 0.166 | 0.776 ± 0.089 |
+| LLM Prompting            | 0.950 ± 0.000 | 0.930 ± 0.000 | 0.900 ± 0.000 | 0.930 ± 0.000 | 0.820 ± 0.000 |
+| Constrastive AL          | 0.980 ± 0.000 | 0.910 ± 0.000 | 0.910 ± 0.000 | 0.870 ± 0.000 | 0.980 ± 0.000 |
+
 
 [1]: LLM Prompting is only done with 10 instances (actual prompt may contain less depending on length). Its also not repeated for different seeds.
+
 [2]: Contrastive AL is also not repeated for different seeds.
