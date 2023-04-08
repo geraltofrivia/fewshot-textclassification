@@ -1,4 +1,4 @@
-# fitting-setfits
+# Few-Shot Text Classification
 Playing with SetFit approach for few-shot transfer for text classification.
 
 EDIT: I also did some experiments with active learning so now I have active.py as well. 
