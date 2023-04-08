@@ -1,0 +1,1 @@
+{"accuracy": [0.92, 0.9, 0.9, 0.95, 0.91], "config": {"batch_size": 16, "num_epochs": 1, "num_epochs_finetune": 5, "num_sents": 64, "test_on_test": true}}
